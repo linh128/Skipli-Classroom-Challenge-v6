@@ -2,6 +2,8 @@ const express = require("express");
 const axios = require("axios");
 const swaggerUi = require("swagger-ui-express");
 const swaggerJsdoc = require("swagger-jsdoc");
+const twilio = require("twilio");
+require('dotenv').config();
 
 const app = express();
 app.use(express.json());
@@ -11,15 +13,15 @@ const FIREBASE_URL = "https://classroomdb-e362e-default-rtdb.asia-southeast1.fir
 
 //Swagger
 const options = {
-  definition: {
-    openapi: "3.0.0",
-    info: {
-      title: "Classroom Management API",
-      version: "1.0.0",
-      description: "API for testing Firebase Realtime DB",
+    definition: {
+        openapi: "3.0.0",
+        info: {
+            title: "Classroom Management API",
+            version: "1.0.0",
+            description: "API for testing Firebase Realtime DB",
+        },
     },
-  },
-  apis: ["./server.js"], // lấy comment từ file này
+    apis: ["./server.js"], // lấy comment từ file này
 };
 const swaggerSpec = swaggerJsdoc(options);
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
@@ -38,12 +40,12 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
  */
 
 app.get("/auth", async (req, res) => {
-    try{
+    try {
         const response = await axios.get(`${FIREBASE_URL}/auth.json`);
         res.json(response.data);
 
-    }catch (error) {
-        res.status(500).json({error : error.message});
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 });
 
@@ -75,25 +77,67 @@ app.get("/auth", async (req, res) => {
 app.post("/createAccessCode", async (req, res) => {
     try {
         // const phoneNum = 123123123;//test
-        const { phoneNum } = req.body;
-        
+        let { phoneNum } = req.body;
+        const accountSid = process.env.TWILIO_ACCOUNT_SID;
+        const authToken = process.env.TWILIO_AUTH_TOKEN;
+        const twilioPhone = process.env.TWILIO_PHONE_NUMBER;
+        const client = twilio(accountSid, authToken);
+
+
         if (phoneNum == null) {
             return res.status(400).json({ error: "Not have the Phone Number" });
+        } else {
+            phoneNum = "+84" + phoneNum.slice(1); //Vietnam phone number must be +84 first, remove '0'.
+
         }
-        
+
         const accessCode = Math.floor(100000 + Math.random() * 900000).toString();
 
         const response = await axios.post(`${FIREBASE_URL}/auth.json`, { phoneNum, accessCode });
 
-        res.status(201).json({ 
-            msg : "Generate Access Code Successfully",
-            token: response.data.name,
+        await client.messages.create({
+            body: `Your access code is: ${accessCode}`,
+            from: twilioPhone, // Twilio số thuê bao
+            to: phoneNum,      // số điện thoại user
+        });
+
+        res.json({
+            msg: "Access Code Generated",
             phoneNum,
-            accessCode
-        })
+        });
 
     } catch (e) {
         return res.status(500).json({ error: e.message });
+    }
+});
+
+/**
+ * @swagger
+ * /auth:
+ *   get:
+ *     summary: Get authentication records by ID
+ *     tags: [Auth]
+ *     responses:
+ *       200:
+ *         description: List of all auth records
+ *       500:
+ *         description: Server error
+ */
+
+app.get("/auth", async (req, res) => {
+    try {
+        const { token } = req.body;
+        const { accessCode } = req.body;
+
+        if (!token) {
+            return res.status(400).json({ error: "You are not login yet" });
+        }
+
+        const response = await axios.get(`${FIREBASE_URL}/auth.json`);
+        res.json(response.data);
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 });
 
